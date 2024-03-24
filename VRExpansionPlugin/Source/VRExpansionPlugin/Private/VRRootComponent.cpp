@@ -17,6 +17,7 @@
 #include "AI/Navigation/NavigationRelevantData.h"
 
 #include "Components/PrimitiveComponent.h"
+#include "Engine/OverlapResult.h"
 
 DEFINE_LOG_CATEGORY(LogVRRootComponent);
 #define LOCTEXT_NAMESPACE "VRRootComponent"

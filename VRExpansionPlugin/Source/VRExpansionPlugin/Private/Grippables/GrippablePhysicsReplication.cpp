@@ -49,9 +49,12 @@ namespace PhysicsReplicationCVars
 	namespace ResimulationCVars
 	{
 		bool bRuntimeCorrectionEnabled = true;
+		bool bRuntimeVelocityCorrection = true;
 		bool bDisableReplicationOnInteraction = true;
 		float PosStabilityMultiplier = 0.5f;
 		float RotStabilityMultiplier = 1.0f;
+		float VelStabilityMultiplier = 0.5f;
+		float AngVelStabilityMultiplier = 0.5f;
 	}
 
 	namespace PredictiveInterpolationCVars
