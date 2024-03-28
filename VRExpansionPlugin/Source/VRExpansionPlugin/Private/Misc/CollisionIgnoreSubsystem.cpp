@@ -8,6 +8,8 @@
 #include "VRGlobalSettings.h"
 
 //#include "Chaos/ParticleHandle.h"
+#include "PhysicsEngine/SkeletalBodySetup.h"
+
 #include "PhysicsEngine/PhysicsAsset.h"
 #include "PhysicsEngine/PhysicsAsset.h"
 #include "Physics/Experimental/PhysScene_Chaos.h"

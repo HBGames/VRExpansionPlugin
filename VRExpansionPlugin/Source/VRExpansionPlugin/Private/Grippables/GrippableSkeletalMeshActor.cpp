@@ -1,6 +1,9 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "Grippables/GrippableSkeletalMeshActor.h"
+
+#include "PhysicsEngine/SkeletalBodySetup.h"
+
 #include UE_INLINE_GENERATED_CPP_BY_NAME(GrippableSkeletalMeshActor)
 
 #include "TimerManager.h"
@@ -52,7 +55,7 @@ void UOptionalRepSkeletalMeshComponent::GetWeldedBodies(TArray<FBodyInstance*>& 
 			OutWeldedBodies.Add(BI);
 			if (PhysicsAsset)
 			{
-				if (UBodySetup* PhysicsAssetBodySetup = PhysicsAsset->SkeletalBodySetups[BodyIdx])
+				if (const auto PhysicsAssetBodySetup = PhysicsAsset->SkeletalBodySetups[BodyIdx])
 				{
 					OutLabels.Add(PhysicsAssetBodySetup->BoneName);
 				}

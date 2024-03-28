@@ -16,6 +16,7 @@
 
 #include "Physics/PhysicsInterfaceCore.h"
 #include "Physics/PhysicsInterfaceTypes.h"
+#include "PhysicsEngine/ShapeElem.h"
 
 UVREPhysicalAnimationComponent::UVREPhysicalAnimationComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)

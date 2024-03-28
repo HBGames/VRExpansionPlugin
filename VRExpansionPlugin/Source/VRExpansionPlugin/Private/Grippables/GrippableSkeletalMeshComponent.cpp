@@ -1,6 +1,9 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "Grippables/GrippableSkeletalMeshComponent.h"
+
+#include "PhysicsEngine/SkeletalBodySetup.h"
+
 #include UE_INLINE_GENERATED_CPP_BY_NAME(GrippableSkeletalMeshComponent)
 
 #include "GripMotionControllerComponent.h"
@@ -334,7 +337,7 @@ void UGrippableSkeletalMeshComponent::GetWeldedBodies(TArray<FBodyInstance*>& Ou
 			OutWeldedBodies.Add(BI);
 			if (PhysicsAsset)
 			{
-				if (UBodySetup* PhysicsAssetBodySetup = PhysicsAsset->SkeletalBodySetups[BodyIdx])
+				if (const auto PhysicsAssetBodySetup = PhysicsAsset->SkeletalBodySetups[BodyIdx])
 				{
 					OutLabels.Add(PhysicsAssetBodySetup->BoneName);
 				}

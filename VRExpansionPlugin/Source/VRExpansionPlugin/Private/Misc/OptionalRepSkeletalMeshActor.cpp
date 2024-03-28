@@ -1,6 +1,9 @@
 // Copyright 1998-2016 Epic Games, Inc. All Rights Reserved.
 
 #include "Misc/OptionalRepSkeletalMeshActor.h"
+
+#include "PhysicsEngine/SkeletalBodySetup.h"
+
 #include UE_INLINE_GENERATED_CPP_BY_NAME(OptionalRepSkeletalMeshActor)
 
 #include "TimerManager.h"
@@ -249,7 +252,7 @@ void UInversePhysicsSkeletalMeshComponent::GetWeldedBodies(TArray<FBodyInstance*
 			OutWeldedBodies.Add(BI);
 			if (PhysicsAsset)
 			{
-				if (UBodySetup* PhysicsAssetBodySetup = PhysicsAsset->SkeletalBodySetups[BodyIdx])
+				if (const auto PhysicsAssetBodySetup = PhysicsAsset->SkeletalBodySetups[BodyIdx])
 				{
 					OutLabels.Add(PhysicsAssetBodySetup->BoneName);
 				}
