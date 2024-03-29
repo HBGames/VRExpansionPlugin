@@ -1524,7 +1524,7 @@ bool UVRRootComponent::IsLocallyControlled() const
 	{
 		if (GetNetMode() < ENetMode::NM_Client)
 		{
-			if (owningVRChar->VRReplicateCapsuleHeight)
+			if (owningVRChar->GetVRReplicateCapsuleHeight())
 			{
 				owningVRChar->ReplicatedCapsuleHeight.CapsuleHeight = CapsuleHalfHeight;
 			}
