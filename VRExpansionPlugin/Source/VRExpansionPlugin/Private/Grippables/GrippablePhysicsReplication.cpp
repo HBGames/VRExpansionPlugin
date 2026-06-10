@@ -9,6 +9,7 @@
 #include UE_INLINE_GENERATED_CPP_BY_NAME(GrippablePhysicsReplication)
 
 #include "CoreMinimal.h"
+#include "Misc/EngineVersionComparison.h"
 #include "PhysicsEngine/BodyInstance.h"
 #include "PhysicsReplicationLOD.h"
 #include "Components/PrimitiveComponent.h"
@@ -1152,6 +1153,7 @@ void FPhysicsReplicationAsyncVR::AddResimulationRequest_Internal(const float Del
 
 				EPhysicsReplicationMode EffectiveRepMode = InputData.RepMode;
 
+#if UE_VERSION_OLDER_THAN(5, 9, 0)
 				// Get replication mode from LOD if enabled
 				IPhysicsReplicationLODAsync* PhysRepLod = RigidsSolver->GetPhysicsReplicationLOD_Internal();
 				if (PhysRepLod && PhysRepLod->IsEnabled())
@@ -1162,6 +1164,10 @@ void FPhysicsReplicationAsyncVR::AddResimulationRequest_Internal(const float Del
 						EffectiveRepMode = LodData->ReplicationMode;
 					}
 				}
+#endif
+				// UE 5.9+: FPhysicsRepLodData no longer carries a ReplicationMode; the LOD recommendation is
+				// computed zone-based inside ApplyPhysicsReplicationLOD and applied to the cached Target there
+				// (including requesting resim + enabling rewind capture for the ResimDecay zone).
 
 				// Create RewindData if we use resim and not yet created
 				if (!RewindData && EffectiveRepMode == EPhysicsReplicationMode::Resimulation)
@@ -1267,6 +1273,7 @@ void FPhysicsReplicationAsyncVR::OnPreSimulate_Internal()
 			{
 				EPhysicsReplicationMode EffectiveRepMode = Input.RepMode;
 
+#if UE_VERSION_OLDER_THAN(5, 9, 0)
 				// Get replication mode from LOD if enabled
 				IPhysicsReplicationLODAsync* PhysRepLod = RigidsSolver->GetPhysicsReplicationLOD_Internal();
 				if (PhysRepLod && PhysRepLod->IsEnabled())
@@ -1277,6 +1284,10 @@ void FPhysicsReplicationAsyncVR::OnPreSimulate_Internal()
 						EffectiveRepMode = LodData->ReplicationMode;
 					}
 				}
+#endif
+				// UE 5.9+: FPhysicsRepLodData no longer carries a ReplicationMode; the LOD recommendation is
+				// computed zone-based inside ApplyPhysicsReplicationLOD and applied to the cached Target there
+				// (including requesting resim + enabling rewind capture for the ResimDecay zone).
 
 				// Create RewindData if we use resim and it's not yet created
 				if (EffectiveRepMode == EPhysicsReplicationMode::Resimulation)
@@ -1833,6 +1844,7 @@ void FPhysicsReplicationAsyncVR::CheckTargetResimValidity(FReplicatedPhysicsTarg
 
 void FPhysicsReplicationAsyncVR::ApplyPhysicsReplicationLOD(Chaos::FConstPhysicsObjectHandle PhysicsObjectHandle, FReplicatedPhysicsTargetAsync& Target, const uint32 LODFLags)
 {
+#if UE_VERSION_OLDER_THAN(5, 9, 0)
 	Chaos::FPBDRigidsSolver& RigidsSolver = GetSolver()->CastChecked();
 
 	IPhysicsReplicationLODAsync* PhysRepLod = RigidsSolver.GetPhysicsReplicationLOD_Internal();
@@ -1866,6 +1878,118 @@ void FPhysicsReplicationAsyncVR::ApplyPhysicsReplicationLOD(Chaos::FConstPhysics
 			}
 		}
 	}
+#else
+	// UE 5.9+: FPhysicsRepLodData no longer carries a ReplicationMode. Port of the zone-based logic from
+	// FPhysicsReplicationAsync::ApplyPhysicsReplicationLOD (Engine PhysicsReplication.cpp), minus the debug
+	// logging. The engine guards re-entry per frame at the call sites via Target.LastLODFrame; this copy is
+	// also called unguarded every tick (LODFlag_IslandCheck), so the guard lives here instead.
+	Chaos::FPBDRigidsSolver& RigidsSolver = GetSolver()->CastChecked();
+	const int32 CurrentFrame = RigidsSolver.GetCurrentFrame();
+
+	if (Target.LastLODFrame == CurrentFrame)
+	{
+		// Already processed this particle this frame
+		return;
+	}
+
+	Target.SimDecayTimeScale = 1.0f;
+
+	// Temporary target, don't apply LOD until we receive targets for specified server physics frames
+	if (Target.ServerFrame <= 0)
+	{
+		Target.RepMode = EPhysicsReplicationMode::PredictiveInterpolation;
+		return;
+	}
+
+	IPhysicsReplicationLODAsync* PhysRepLod = RigidsSolver.GetPhysicsReplicationLOD_Internal();
+	if (!PhysRepLod || !PhysRepLod->IsEnabled())
+	{
+		return;
+	}
+
+	FPhysicsRepLodData* LodData = PhysRepLod->GetLODData_Internal(PhysicsObjectHandle, LODFLags);
+	if (!LodData || !LodData->DataAssigned)
+	{
+		return;
+	}
+
+	const int32 LocalFrame = Target.ServerFrame - NetworkPhysicsTickOffset;
+	const int32 FullPredictionFrames = CurrentFrame - LocalFrame;
+	const float DeltaTime = static_cast<float>(RigidsSolver.GetAsyncDeltaTime());
+	const float FullPredictionTime = FullPredictionFrames * DeltaTime;
+
+	/** Outer zone (Predictive Interpolation)
+	* - AlignedTime >= FullPredictionTime - LOD wants to align the particle further back in time than the full prediction time, meaning the particle is outside of the transition zone.
+	* - AlignedFrame == 0 (no focal particle registered) - If we don't get a recommended frame to align to we don't have a focal particle in LOD
+	* - FullPredictionFrames <= 0 - Server is ahead of client */
+	if (LodData->AlignedTime >= FullPredictionTime || LodData->AlignedFrame == 0 || FullPredictionFrames <= 0)
+	{
+		Target.RepMode = EPhysicsReplicationMode::PredictiveInterpolation;
+		Target.LastLODFrame = CurrentFrame;
+		return;
+	}
+
+	/** Inner zone (Resimulation with full forward prediction)
+	* - AlignedTime <= 0 - LOD wants to align this particle 0ms behind the current (forward predicted) timeline */
+	if (LodData->AlignedTime <= 0.0f)
+	{
+		Target.RepMode = EPhysicsReplicationMode::Resimulation;
+		Target.LastLODFrame = CurrentFrame;
+		return;
+	}
+
+	// Transition zone, choose between Extrapolation (PI + extrapolated target) and ResimDecay (Resimulation + SimulationDecay) based on a fraction-of-prediction threshold.
+	// The thresholds live in non-exported engine globals (PhysicsReplicationLODCVars), fetch them through the console manager instead.
+	static const auto CVarTransitionExtrapFrameMin = IConsoleManager::Get().FindConsoleVariable(TEXT("p.ReplicationLOD.TransitionExtrapFrameMin"));
+	static const auto CVarTransitionExtrapFraction = IConsoleManager::Get().FindConsoleVariable(TEXT("p.ReplicationLOD.TransitionExtrapFraction"));
+	const int32 TransitionExtrapFrameMin = CVarTransitionExtrapFrameMin ? CVarTransitionExtrapFrameMin->GetInt() : 3;
+	const float TransitionExtrapFraction = CVarTransitionExtrapFraction ? CVarTransitionExtrapFraction->GetFloat() : 0.3f;
+
+	// Number of frames closest to the latest received server state that use Extrapolation; the remainder of the transition zone uses ResimDecay
+	const int32 ExtrapFramesThreshold = FMath::Max(
+		TransitionExtrapFrameMin,
+		FMath::CeilToInt(TransitionExtrapFraction * FullPredictionFrames));
+	const int32 ExtrapolationFrameBoundary = LocalFrame + ExtrapFramesThreshold;
+
+	Target.LastLODFrame = CurrentFrame;
+
+	// Apply Extrapolation
+	if (LodData->AlignedFrame <= ExtrapolationFrameBoundary)
+	{
+		Target.RepMode = EPhysicsReplicationMode::PredictiveInterpolation;
+
+		// Run target extrapolation for non-sleeping particle
+		const bool bShouldSleep = (Target.TargetState.Flags & ERigidBodyFlags::Sleeping) != 0;
+		if (!bShouldSleep)
+		{
+			const float AlignedPredictionTime = FullPredictionTime - LodData->AlignedTime;
+			FPhysicsReplicationAsyncVR::ExtrapolateTarget(Target, AlignedPredictionTime);
+			Target.TickCount = LodData->AlignedFrame - LocalFrame;
+		}
+		return;
+	}
+
+	// Apply ResimDecay
+	Target.RepMode = EPhysicsReplicationMode::Resimulation;
+
+	// Calculate TimeScale to decay the simulation with during resim to make the particle end up at AlignedTime at the end of a resim
+	Target.SimDecayTimeScale = FMath::Clamp(1.0f - (LodData->AlignedTime / FullPredictionTime), 0.0f, 1.0f);
+
+	// Lazily enable rewind capture and request a resimulation for particles inside the resim part of the transition zone
+	Chaos::FRewindData* RewindData = RigidsSolver.GetRewindData();
+	if (!RewindData && Chaos::FPBDRigidsSolver::IsNetworkPhysicsPredictionEnabled() && RigidsSolver.IsUsingFixedDt())
+	{
+		RigidsSolver.EnableRewindCapture();
+		RewindData = RigidsSolver.GetRewindData();
+	}
+
+	if (RewindData)
+	{
+		Chaos::FReadPhysicsObjectInterface_Internal Interface = Chaos::FPhysicsObjectInternalInterface::GetRead();
+		Chaos::FPBDRigidParticleHandle* RigidParticle = Interface.GetRigidParticle(PhysicsObjectHandle);
+		RewindData->RequestResimulation(LocalFrame, RigidParticle);
+	}
+#endif // UE_VERSION_OLDER_THAN(5, 9, 0)
 }
 
 //** Async function for legacy replication flow that goes partially through GT to then finishes in PT in this function. */

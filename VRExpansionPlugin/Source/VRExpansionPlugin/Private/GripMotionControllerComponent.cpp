@@ -8499,7 +8499,7 @@ bool UGripMotionControllerComponent::GetIsSecondaryAttachment(const USceneCompon
 	return false;
 }
 
-bool UGripMotionControllerComponent::HasGrippedObjects()
+bool UGripMotionControllerComponent::HasGrippedObjects() const
 {
 	return GrippedObjects.Num() > 0 || LocallyGrippedObjects.Num() > 0;
 }

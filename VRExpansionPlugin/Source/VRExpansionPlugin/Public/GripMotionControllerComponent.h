@@ -8,6 +8,7 @@
 #include "SceneViewExtension.h"
 #include "VRBPDatatypes.h"
 #include "MotionControllerComponent.h"
+#include "Misc/EngineVersionComparison.h"
 #include "VRGripInterface.h"
 #include "GripScripts/VRGripScriptBase.h"
 #include "GripMotionControllerComponent.generated.h"
@@ -1299,7 +1300,13 @@ public:
 
 	// Get if we have gripped objects, local or replicated
 	UFUNCTION(BlueprintPure, Category = "GripMotionController")
-		bool HasGrippedObjects();
+		bool HasGrippedObjects() const;
+
+#if !UE_VERSION_OLDER_THAN(5, 9, 0)
+	// HITBOX change: UE 5.9 made UMotionControllerComponent::GetAngularVelocity protected, re-expose the
+	// tracked controller angular velocity (deg/s, world space) for external gameplay code.
+	bool GetTrackedDeviceAngularVelocity(FRotator& OutAngularVelocity) const { return GetAngularVelocity(OutAngularVelocity); }
+#endif
 
 	// Get the first active and valid grip (local and remote auth both, priority remote)
 	// Returns false is there is none
